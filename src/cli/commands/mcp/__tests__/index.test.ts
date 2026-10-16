@@ -17,6 +17,15 @@ vi.mock('../../../../utils/paths.js', () => ({
   resolveHomeDir: vi.fn().mockReturnValue('/home/test/.local/bin/claude'),
 }));
 
+// The catalog resolver loads the CodeMie config, which the partial utils mocks above do not provide.
+vi.mock('../catalog.js', () => ({
+  resolveCatalog: vi.fn(),
+  findCatalogEntry: vi.fn(
+    (catalog: { entries: Array<{ entry: { name: string } }> }, name: string) =>
+      catalog.entries.find((candidate) => candidate.entry.name.toLowerCase() === name.toLowerCase()),
+  ),
+}));
+
 // The fast-path claude lookup is only attempted on non-Windows; the fallback shell flag
 // mirrors os.platform() === 'win32' either way, so compute the expectation from the real os module.
 const expectedShell = os.platform() === 'win32';
@@ -285,6 +294,111 @@ describe('mcp command', () => {
 
       const command = createMcpCommand();
       await expect(command.parseAsync(['list'], { from: 'user' })).rejects.toThrow('process.exit:7');
+    });
+  });
+
+  describe('list --catalog', () => {
+    let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+    let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+    const fixtureCatalog = {
+      entries: [
+        {
+          entry: {
+            name: 'Notion',
+            transport: 'http',
+            url: 'https://mcp.notion.com/mcp',
+            auth: 'oauth',
+            oauth: true,
+            description: 'Notion workspace',
+          },
+          installable: true,
+        },
+        {
+          entry: { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
+          installable: false,
+        },
+      ],
+      notices: ['Organization MCP catalog is unavailable (no SSO session); showing the bundled MCP catalog only.'],
+    };
+
+    beforeEach(() => {
+      consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleLogSpy.mockRestore();
+      consoleWarnSpy.mockRestore();
+    });
+
+    async function mockCatalog(catalog: unknown) {
+      const catalogModule = await import('../catalog.js');
+      vi.mocked(catalogModule.resolveCatalog).mockResolvedValue(catalog as never);
+      return catalogModule;
+    }
+
+    function printedLines(): string {
+      return consoleLogSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+    }
+
+    it('prints each catalog entry with its transport, auth, url and description', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCatalog(fixtureCatalog);
+      const { createMcpCommand } = await import('../index.js');
+
+      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
+
+      const output = printedLines();
+      expect(output).toContain('Notion');
+      expect(output).toContain('http');
+      expect(output).toContain('oauth');
+      expect(output).toContain('https://mcp.notion.com/mcp');
+      expect(output).toContain('Notion workspace');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('marks a stdio entry as not installable', async () => {
+      await mockClaudeResolved(0);
+      await mockCatalog(fixtureCatalog);
+      const { createMcpCommand } = await import('../index.js');
+
+      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
+
+      const localToolLine = consoleLogSpy.mock.calls
+        .map((call) => call.join(' '))
+        .find((line) => line.includes('LocalTool'));
+      expect(localToolLine).toContain('not installable');
+    });
+
+    it('prints the catalog notices as warnings', async () => {
+      await mockClaudeResolved(0);
+      await mockCatalog(fixtureCatalog);
+      const { createMcpCommand } = await import('../index.js');
+
+      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(fixtureCatalog.notices[0]);
+    });
+
+    it('prints an empty-catalog message when the catalog has no entries', async () => {
+      await mockClaudeResolved(0);
+      await mockCatalog({ entries: [], notices: [] });
+      const { createMcpCommand } = await import('../index.js');
+
+      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
+
+      expect(printedLines()).toContain('No MCP servers are available');
+    });
+
+    it('does not resolve or run the claude CLI', async () => {
+      const { getCommandPath } = await mockClaudeResolved(0);
+      await mockCatalog(fixtureCatalog);
+      const { createMcpCommand } = await import('../index.js');
+
+      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
+
+      expect(getCommandPath).not.toHaveBeenCalledWith('claude');
     });
   });
 });

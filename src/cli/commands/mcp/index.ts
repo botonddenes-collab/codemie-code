@@ -3,6 +3,8 @@ import os from 'os';
 import { exec } from '../../../utils/exec.js';
 import { getCommandPath } from '../../../utils/processes.js';
 import { resolveHomeDir } from '../../../utils/paths.js';
+import { resolveCatalog, type CatalogEntry, type ResolvedCatalog } from './catalog.js';
+import type { CanonicalMcpEntry } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
 
 async function ensureProxyCommandExists(): Promise<void> {
   const proxyCommand = await getCommandPath('codemie-mcp-proxy');
@@ -157,21 +159,57 @@ function createMcpRemoveCommand(): Command {
   return command;
 }
 
+function describeAuth(entry: CanonicalMcpEntry): string {
+  return entry.oauth || entry.auth === 'oauth' ? 'oauth' : 'none';
+}
+
+function formatCatalogEntry(item: CatalogEntry): string[] {
+  const { entry, installable } = item;
+  const status = installable ? 'installable' : 'not installable';
+  const lines = [`${entry.name}  [${entry.transport}, auth: ${describeAuth(entry)}]  ${status}`];
+  if (entry.url) lines.push(`  url: ${entry.url}`);
+  if (entry.description) lines.push(`  ${entry.description}`);
+  return lines;
+}
+
+function printCatalog(catalog: ResolvedCatalog): void {
+  for (const notice of catalog.notices) {
+    console.warn(notice);
+  }
+  if (catalog.entries.length === 0) {
+    console.log('No MCP servers are available in the catalog.');
+    return;
+  }
+  for (const item of catalog.entries) {
+    for (const line of formatCatalogEntry(item)) {
+      console.log(line);
+    }
+  }
+}
+
 function createMcpListCommand(): Command {
   const command = new Command('list');
 
-  command.description('List registered MCP servers').action(async () => {
-    let claudeCommand: string;
-    let useShell: boolean;
-    try {
-      ({ command: claudeCommand, shell: useShell } = await resolveClaudeCommand());
-    } catch {
-      console.error('claude CLI not found. Install Claude Code: https://claude.ai/code');
-      process.exit(1);
+  command
+    .description('List registered MCP servers')
+    .option('--catalog', 'List the managed MCP catalog available to `mcp install`')
+    .action(async (options: { catalog?: boolean }) => {
+    if (options.catalog) {
+      printCatalog(await resolveCatalog());
+      return;
     }
 
-    await runClaudeMcpCommand(claudeCommand, useShell, ['mcp', 'list']);
-  });
+      let claudeCommand: string;
+      let useShell: boolean;
+      try {
+        ({ command: claudeCommand, shell: useShell } = await resolveClaudeCommand());
+      } catch {
+        console.error('claude CLI not found. Install Claude Code: https://claude.ai/code');
+        process.exit(1);
+      }
+
+      await runClaudeMcpCommand(claudeCommand, useShell, ['mcp', 'list']);
+    });
 
   return command;
 }
