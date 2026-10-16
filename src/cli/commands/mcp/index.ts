@@ -119,8 +119,37 @@ function selectInstallTarget(catalog: ResolvedCatalog, name: string): InstallTar
   return { name: item.entry.name, url };
 }
 
+/**
+ * Catalog names and urls come from the organization backend, so they are untrusted
+ * before they reach a command line. On Windows the agent CLI runs through a shell,
+ * where cmd.exe splits on & | and expands %VAR% and !VAR!; the name must be a plain
+ * identifier and the url a plain http(s) address.
+ */
+const SAFE_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const UNSAFE_URL_CHARS = /[\s"&|<>^%!]/;
+
+function isPlainHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return (protocol === 'http:' || protocol === 'https:') && !UNSAFE_URL_CHARS.test(value);
+  } catch {
+    return false;
+  }
+}
+
+function assertSafeRegistration(target: InstallTarget): void {
+  if (!SAFE_SERVER_NAME.test(target.name) || !isPlainHttpUrl(target.url)) {
+    throw new ConfigurationError(
+      `"${target.name}" has an unsafe catalog name or url and cannot be registered. Names may use letters, digits, dot, underscore and hyphen; urls must be plain http or https addresses.`
+    );
+  }
+}
+
+/** The shared proxy precondition, reported as an install error. */
 async function ensureInstallProxy(): Promise<void> {
-  if (!(await getCommandPath('codemie-mcp-proxy'))) {
+  try {
+    await ensureProxyCommandExists();
+  } catch {
     throw new ToolExecutionError(
       'codemie-mcp-proxy',
       'binary not found. Reinstall @codemieai/code to restore the MCP proxy binary.'
@@ -156,6 +185,7 @@ async function installCatalogServer(name: string, options: McpInstallOptions): P
   const catalog = await resolveCatalog();
   printNotices(catalog);
   const target = selectInstallTarget(catalog, name);
+  assertSafeRegistration(target);
   await ensureInstallProxy();
   const { command, shell } = await resolveAgentCommand(agent);
   return execMcpCommand(

@@ -4,9 +4,11 @@ import {
 } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
 import {
   DEFAULT_MANAGED_MCP_SERVERS,
-  mergeManagedMcpServers,
+  bundledCanonicalDefaults,
+  collidesWithManagedEntry,
   type ManagedMcpServerEntry,
 } from '@/cli/commands/proxy/connectors/managed-mcp-catalog.js';
+import { bundledOnFailedFetch } from '@/cli/commands/proxy/connectors/managed-mcp-fallback.js';
 import { ConfigLoader } from '@/utils/config.js';
 import { logger } from '@/utils/logger.js';
 import { sanitizeLogArgs } from '@/utils/security.js';
@@ -33,17 +35,6 @@ const NOTICE_FETCH_UNAVAILABLE =
 const NOTICE_CONFIG_UNREADABLE =
   'CodeMie configuration could not be read; showing the bundled MCP catalog only.';
 
-/** Convert a bundled default into the canonical shape the catalog works with. */
-function bundledToCanonical(entry: ManagedMcpServerEntry): CanonicalMcpEntry {
-  return {
-    name: entry.name,
-    transport: entry.transport ?? 'http',
-    url: entry.url,
-    auth: entry.oauth ? 'oauth' : 'none',
-    oauth: entry.oauth,
-  };
-}
-
 /** Only http/sse entries that carry a url can be registered through the proxy. */
 function isInstallable(entry: CanonicalMcpEntry): boolean {
   return (
@@ -64,32 +55,18 @@ function canonicalToManaged(entry: CanonicalMcpEntry): ManagedMcpServerEntry {
 }
 
 /**
- * Find the canonical entry a merged managed entry came from. The merge clones
- * its inputs and drops fields such as description, so the source is looked up
- * again by name and url; the fallback is only reached for a bundled default.
- */
-function sourceFor(managed: ManagedMcpServerEntry, sources: CanonicalMcpEntry[]): CanonicalMcpEntry {
-  const match = sources.find(
-    (source) =>
-      source.name.toLowerCase() === managed.name.toLowerCase() && source.url === managed.url,
-  );
-  return match ?? bundledToCanonical(managed);
-}
-
-/**
  * Merge the organization catalog over the bundled defaults using the same rules
- * Claude Desktop uses: the backend wins a name or endpoint collision. Non-http/sse
- * backend entries are carried through as listed-but-not-installable.
+ * Claude Desktop uses: the backend wins a name or endpoint collision. Every backend
+ * entry takes part in the collision test whatever its transport, so a stdio entry
+ * cannot sit beside the bundled default it shadows. Non-http/sse backend entries
+ * are carried through as listed-but-not-installable.
  */
 function mergeWithBundled(orgEntries: CanonicalMcpEntry[]): CanonicalMcpEntry[] {
-  const installableOrg = orgEntries.filter(isInstallable);
-  const passThrough = orgEntries.filter((entry) => !isInstallable(entry));
-  const sources = [...installableOrg, ...DEFAULT_MANAGED_MCP_SERVERS.map(bundledToCanonical)];
-  const { managed } = mergeManagedMcpServers(
-    DEFAULT_MANAGED_MCP_SERVERS,
-    installableOrg.map(canonicalToManaged),
+  const orgManaged = orgEntries.map(canonicalToManaged);
+  const keptDefaults = DEFAULT_MANAGED_MCP_SERVERS.filter(
+    (bundled) => !orgManaged.some((org) => collidesWithManagedEntry(bundled, org)),
   );
-  return [...managed.map((entry) => sourceFor(entry, sources)), ...passThrough];
+  return [...bundledCanonicalDefaults(keptDefaults), ...orgEntries];
 }
 
 function toCatalogEntries(entries: CanonicalMcpEntry[]): CatalogEntry[] {
@@ -98,7 +75,7 @@ function toCatalogEntries(entries: CanonicalMcpEntry[]): CatalogEntry[] {
 
 function bundledOnly(notice: string): ResolvedCatalog {
   return {
-    entries: toCatalogEntries(DEFAULT_MANAGED_MCP_SERVERS.map(bundledToCanonical)),
+    entries: toCatalogEntries(bundledCanonicalDefaults()),
     notices: [notice],
   };
 }
@@ -130,7 +107,11 @@ export async function resolveCatalog(): Promise<ResolvedCatalog> {
 
   const orgEntries = await fetchManagedMcpServers(MCP_CATALOG_CLIENT_ID, codeMieUrl);
   if (orgEntries === null) {
-    return bundledOnly(NOTICE_FETCH_UNAVAILABLE);
+    const fallback = bundledOnFailedFetch(NOTICE_FETCH_UNAVAILABLE);
+    return {
+      entries: toCatalogEntries(bundledCanonicalDefaults(fallback.defaults)),
+      notices: fallback.notice ? [fallback.notice] : [],
+    };
   }
   if (orgEntries.length === 0) {
     return { entries: [], notices: [] };

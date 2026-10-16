@@ -104,6 +104,20 @@ describe('catalog', () => {
       expect(local?.installable).toBe(false);
     });
 
+    it('lets a non-installable backend entry displace a bundled default with the same name', async () => {
+      fetchManagedMcpServers.mockResolvedValue([
+        { name: 'Notion', transport: 'stdio', oauth: false },
+      ]);
+      const { resolveCatalog, findCatalogEntry } = await import('@/cli/commands/mcp/catalog.js');
+
+      const catalog = await resolveCatalog();
+      const notion = catalog.entries.filter((c) => c.entry.name === 'Notion');
+
+      expect(notion).toHaveLength(1);
+      expect(notion[0].installable).toBe(false);
+      expect(findCatalogEntry(catalog, 'Notion')?.installable).toBe(false);
+    });
+
     it('marks an sse backend entry with a url as installable', async () => {
       fetchManagedMcpServers.mockResolvedValue([
         { name: 'Streamer', transport: 'sse', url: 'https://stream.example.com/sse', oauth: false },

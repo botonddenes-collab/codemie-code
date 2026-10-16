@@ -455,6 +455,44 @@ describe('mcp command', () => {
       );
     });
 
+    it.each([
+      ['bad&name', 'https://acme.example.com/mcp'],
+      ['Acme Tools', 'https://acme.example.com/mcp'],
+    ])('refuses the unsafe catalog name "%s" without executing anything', async (name, url) => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog({
+        entries: [{ entry: { name, transport: 'http', url, auth: 'none', oauth: false }, installable: true }],
+        notices: [],
+      });
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', name], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('unsafe');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['https://acme.example.com/mcp?a=1&b=2'],
+      ['ftp://acme.example.com/mcp'],
+    ])('refuses the unsafe catalog url "%s" without executing anything', async (url) => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog({
+        entries: [{ entry: { name: 'Acme', transport: 'http', url, auth: 'none', oauth: false }, installable: true }],
+        notices: [],
+      });
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'acme'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('unsafe');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
     it('registers through codex mcp add without a scope flag when --agent=codex', async () => {
       const { exec } = await mockClaudeResolved(0);
       await mockCommandPaths({ codex: '/usr/local/bin/codex', 'codemie-mcp-proxy': PROXY_PATH });

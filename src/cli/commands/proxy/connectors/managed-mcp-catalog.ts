@@ -1,5 +1,5 @@
 import managedMcpServers from './desktop-managed-mcp-servers.json' with { type: 'json' };
-import type { McpOAuthConfig } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
+import type { CanonicalMcpEntry, McpOAuthConfig } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
 
 export interface ManagedMcpServerEntry {
   name: string;
@@ -15,6 +15,19 @@ export interface ManagedMcpServerEntry {
 
 export const DEFAULT_MANAGED_MCP_SERVERS =
   managedMcpServers as readonly ManagedMcpServerEntry[];
+
+/** Canonical shape of bundled defaults, the list the MCP catalog falls back to. */
+export function bundledCanonicalDefaults(
+  defaults: readonly ManagedMcpServerEntry[] = DEFAULT_MANAGED_MCP_SERVERS,
+): CanonicalMcpEntry[] {
+  return defaults.map((entry) => ({
+    name: entry.name,
+    transport: entry.transport ?? 'http',
+    url: entry.url,
+    auth: entry.oauth ? 'oauth' : 'none',
+    oauth: entry.oauth,
+  }));
+}
 
 /**
  * Copy a managed entry, including its nested oauth object.
@@ -59,7 +72,7 @@ function sameManagedName(a: ManagedMcpServerEntry, b: ManagedMcpServerEntry): bo
  * come from controlled sources. Defined in terms of {@link sameManagedName} and
  * {@link sameManagedEndpoint} so the wide and narrow tests cannot drift apart.
  */
-function collidesWithManagedEntry(a: ManagedMcpServerEntry, b: ManagedMcpServerEntry): boolean {
+export function collidesWithManagedEntry(a: ManagedMcpServerEntry, b: ManagedMcpServerEntry): boolean {
   return sameManagedName(a, b) || sameManagedEndpoint(a, b);
 }
 
