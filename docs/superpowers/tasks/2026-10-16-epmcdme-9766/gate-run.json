@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "branch": "feat/predefined-mcp-list",
+  "head": "5bb9d42cae4ac39e170bd385177068987a5eeefa",
+  "runner": "npm",
+  "started_at": "2026-10-16T14:34:00Z",
+  "completed_at": "2026-10-16T14:38:28.670Z",
+  "status": "BLOCKED",
+  "drift_detected": false,
+  "gates": [
+    {
+      "id": "license-check",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 3095,
+      "command": "npm run license-check",
+      "exit_code": 0
+    },
+    {
+      "id": "lint",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 17049,
+      "command": "npm run lint",
+      "exit_code": 0
+    },
+    {
+      "id": "typecheck",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 7143,
+      "command": "npm run typecheck",
+      "exit_code": 0
+    },
+    {
+      "id": "build",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 11467,
+      "command": "npm run build",
+      "exit_code": 0
+    },
+    {
+      "id": "unit",
+      "source": "guide",
+      "status": "FAIL",
+      "duration_ms": 53355,
+      "command": "npx vitest run --project unit",
+      "exit_code": 1
+    },
+    {
+      "id": "integration",
+      "source": "guide",
+      "status": "FAIL",
+      "duration_ms": 25054,
+      "command": "npx vitest run --project cli",
+      "exit_code": 1
+    },
+    {
+      "id": "secrets",
+      "source": "guide",
+      "status": "SKIPPED",
+      "duration_ms": 729,
+      "command": "npm run validate:secrets",
+      "exit_code": 0,
+      "notes": "Self-skip: exit 0 with output \"No staged changes to scan\" (script scans the git index only). To enable locally, stage the changes to scan (git add) and rerun. CI secrets-detection job (gitleaks-action, PR head) is the only real scan of this branch; only CI can settle it."
+    },
+    {
+      "id": "commitlint-last",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 526,
+      "command": "npm run commitlint:last",
+      "exit_code": 0
+    },
+    {
+      "id": "check-pre-commit",
+      "source": "guide",
+      "status": "PASS",
+      "duration_ms": 22469,
+      "command": "npm run check:pre-commit",
+      "exit_code": 0
+    },
+    {
+      "id": "full-ci",
+      "source": "guide",
+      "status": "FAIL",
+      "duration_ms": 78496,
+      "command": "npm run ci",
+      "exit_code": 1,
+      "notes": "Stops at first failing step (unit). Remaining steps (cli) not reached in this aggregate; integration gate ran separately and FAILed."
+    },
+    {
+      "id": "commitlint-range",
+      "source": "ci",
+      "status": "PASS",
+      "duration_ms": 563,
+      "command": "npx commitlint --from origin/main --to HEAD --verbose",
+      "exit_code": 0,
+      "notes": "Mirrors CI validate-commits job; CI uses PR base sha, here origin/main. Also covers the commit-msg hook (npx --no -- commitlint --edit) for these commits. Guide commitlint:last only checks HEAD~1..HEAD."
+    },
+    {
+      "id": "lint-staged",
+      "source": "hook",
+      "status": "SKIPPED",
+      "duration_ms": 445,
+      "command": "npx lint-staged",
+      "exit_code": 0,
+      "notes": "Self-skip: exit 0 with output \"lint-staged could not find any staged files.\" Hook only operates on staged files. To enable locally, stage files and rerun. Per-file vitest related run is not exercised here; lint and unit/integration gates cover the branch diff."
+    },
+    {
+      "id": "windows-tests",
+      "source": "ci",
+      "status": "N/A",
+      "duration_ms": 0,
+      "command": "npx vitest run --project unit && npx vitest run --project cli (windows-latest)",
+      "exit_code": null,
+      "notes": "Requires Windows runner; CI-only. Not run locally."
+    },
+    {
+      "id": "pr-title",
+      "source": "ci",
+      "status": "N/A",
+      "duration_ms": 0,
+      "command": "commitlint on PR title fetched via gh pr view",
+      "exit_code": null,
+      "notes": "Requires an open PR; title validated only by CI from the PR API. Not run."
+    }
+  ],
+  "failures": {
+    "unit": "  1st vi.fn() call:\n\n  [\n-   \"https://codemie.example.com\",\n+   \"https://codemie.lab.epam.com/code-assistant-api\",\n  ]\n\n\nNumber of calls: 1\n\n ❯ src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts:58:35\n     56|\n     57|     expect(result).toEqual({ ok: false, reason: 'no valid CodeMie SSO …\n     58|     expect(startDetachedSsoLogin).toHaveBeenCalledWith(configured.ssoU…\n       |                                   ^\n     59|   });\n     60|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯\n\n FAIL  |unit| src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts > ensureCodeMieSsoAuth > blocks without starting a sign-in when the provider is SSO but no url is configured\nAssertionError: expected { ok: true } to deeply equal { ok: false, …(2) }\n\n- Expected\n+ Received\n\n  {\n-   \"loginOutcome\": undefined,\n-   \"ok\": false,\n-   \"reason\": \"no valid CodeMie SSO credentials found\",\n+   \"ok\": true,\n  }\n\n ❯ src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts:75:20\n     73|     const result = await ensureCodeMieSsoAuth({ provider: 'ai-run-sso'…\n     74|\n     75|     expect(result).toEqual({ ok: false, reason: 'no valid CodeMie SSO …\n       |                    ^\n     76|     expect(getStoredCredentials).not.toHaveBeenCalled();\n     77|     expect(startDetachedSsoLogin).not.toHaveBeenCalled();\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯\n\n\n Test Files  6 failed | 350 passed (356)\n      Tests  14 failed | 5279 passed (5293)\n   Start at  16:34:45\n   Duration  52.68s (transform 69.14s, setup 0ms, import 336.27s, tests 157.64s, environment 129ms)\n\n",
+    "integration": "+   \"--model\",\n+   \"claude-sonnet-5-5[1m]\",\n    \"test\",\n    \"task\",\n  ]\n\n ❯ tests/integration/sso-claude-plugin.test.ts:183:28\n    181|\n    182|       // Verify args unchanged\n    183|       expect(enrichedArgs).toEqual(args);\n       |                            ^\n    184|\n    185|       // Verify --plugin-dir NOT injected\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯\n\n FAIL  |cli| tests/integration/sso-claude-plugin.test.ts > SSO Provider - Claude Plugin Auto-Install > Full Integration Flow > should complete full flow: install → inject\nAssertionError: expected [ '--settings', …(7) ] to deeply equal [ '--plugin-dir', …(3) ]\n\n- Expected\n+ Received\n\n  [\n+   \"--settings\",\n+   \"/tmp/codemie-claude-model-picker-config-130016-1792153436325.json\",\n+   \"--model\",\n+   \"claude-sonnet-5-5[1m]\",\n    \"--plugin-dir\",\n    \"/tmp/codemie-test-claude-plugin/claude-plugin\",\n    \"test\",\n    \"task\",\n  ]\n\n ❯ tests/integration/sso-claude-plugin.test.ts:233:28\n    231|\n    232|       // Verify flag injected\n    233|       expect(enrichedArgs).toEqual(['--plugin-dir', pluginTargetDir, '…\n       |                            ^\n    234|     });\n    235|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯\n\n\n Test Files  1 failed | 36 passed | 1 skipped (38)\n      Tests  4 failed | 274 passed | 10 skipped (288)\n   Start at  16:35:39\n   Duration  24.15s (transform 31.73s, setup 0ms, import 62.84s, tests 156.10s, environment 13ms)\n\n",
+    "full-ci": "  1st vi.fn() call:\n\n  [\n-   \"https://codemie.example.com\",\n+   \"https://codemie.lab.epam.com/code-assistant-api\",\n  ]\n\n\nNumber of calls: 1\n\n ❯ src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts:58:35\n     56|\n     57|     expect(result).toEqual({ ok: false, reason: 'no valid CodeMie SSO …\n     58|     expect(startDetachedSsoLogin).toHaveBeenCalledWith(configured.ssoU…\n       |                                   ^\n     59|   });\n     60|\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯\n\n FAIL  |unit| src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts > ensureCodeMieSsoAuth > blocks without starting a sign-in when the provider is SSO but no url is configured\nAssertionError: expected { ok: true } to deeply equal { ok: false, …(2) }\n\n- Expected\n+ Received\n\n  {\n-   \"loginOutcome\": undefined,\n-   \"ok\": false,\n-   \"reason\": \"no valid CodeMie SSO credentials found\",\n+   \"ok\": true,\n  }\n\n ❯ src/providers/plugins/sso/__tests__/sso.auth-gate.test.ts:75:20\n     73|     const result = await ensureCodeMieSsoAuth({ provider: 'ai-run-sso'…\n     74|\n     75|     expect(result).toEqual({ ok: false, reason: 'no valid CodeMie SSO …\n       |                    ^\n     76|     expect(getStoredCredentials).not.toHaveBeenCalled();\n     77|     expect(startDetachedSsoLogin).not.toHaveBeenCalled();\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯\n\n\n Test Files  6 failed | 350 passed (356)\n      Tests  14 failed | 5279 passed (5293)\n   Start at  16:37:07\n   Duration  52.50s (transform 74.23s, setup 0ms, import 345.57s, tests 151.81s, environment 111ms)\n\n"
+  }
+}

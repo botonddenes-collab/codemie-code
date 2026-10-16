@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generated": "2026-10-16T00:00:00Z",
+  "dimensions": {
+    "component_scope":      { "score": 5, "label": "XL" },
+    "requirements_clarity": { "score": 3, "label": "M" },
+    "technical_risk":       { "score": 5, "label": "XL" },
+    "file_change_estimate": { "score": 5, "label": "XL" },
+    "dependencies":         { "score": 1, "label": "XS" },
+    "affected_layers":      { "score": 4, "label": "L" }
+  },
+  "total": 23,
+  "size": "L",
+  "band_range": "21-26",
+  "files_changed": 13,
+  "routing": "brainstorming",
+  "key_reasoning": [
+    { "dimension": "component_scope", "reason": "Single repo but spans the CLI mcp command group (src/cli/commands/mcp/index.ts, new catalog.ts and agent-registration.ts) and the proxy connectors (desktop.ts, desktop-models.ts, managed-mcp-catalog.ts, managed-mcp-reconcile.ts, new managed-mcp-fallback.ts). The change reshapes shared catalog and reconcile utilities that the Claude Desktop connector also consumes; red flag applied (Component Scope bumped L to XL)." },
+    { "dimension": "technical_risk", "reason": "Catalog names and urls come from an external organization backend (/v1/mcp/managed-servers) and reach an agent CLI command line. index.ts adds a new validator (SAFE_SERVER_NAME, UNSAFE_URL_CHARS, isPlainHttpUrl) for the Windows cmd.exe shell surface; no existing reusable util covers it, so the sanitization floor of L applies and is exceeded. OAuth config is forwarded verbatim, and desktop.ts gains a default authorization-server injection with auth-downgrade reporting. Managed-state reconcile writes marker files with write-ahead semantics. Closest precedent (desktop managed-MCP seeding) does not cover the new shell-injection surface." },
+    { "dimension": "file_change_estimate", "reason": "13 files changed (diffstat), of which about 4 are new (catalog.ts, agent-registration.ts, managed-mcp-fallback.ts, and the new test files) and the rest modified. 11-15 files maps to XL." },
+    { "dimension": "affected_layers", "reason": "Four layers touched: UI/CLI (mcp list/install commands and docs/COMMANDS.md), Service (catalog resolver, desktop connector, reconcile and fallback logic), External (backend managed-server catalog fetch via managed-mcp-remote), and Infrastructure (agent CLI process execution and the managed-MCP state file). No schema or DB migration." },
+    { "dimension": "requirements_clarity", "reason": "The task names the commands, the agents (claude, codex, gemini), the catalog sources (backend with bundled fallback) and the catalog-only install rule, so the core is defined. Collision precedence, failed-fetch behaviour and notices were implementation decisions that the diff had to settle." }
+  ],
+  "red_flags_applied": [
+    "Component Scope bumped from L (4) to XL (5): touches shared catalog and reconcile utilities (managed-mcp-catalog.ts, managed-mcp-reconcile.ts) used by the Claude Desktop connector.",
+    "Technical Risk at XL (5): security-sensitive catalog-to-shell path (name and url validation for cmd.exe on Windows), external backend data, OAuth config forwarding, and auth-downgrade handling."
+  ],
+  "split_recommendation": null
+}
