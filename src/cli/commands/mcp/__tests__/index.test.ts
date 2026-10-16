@@ -401,4 +401,213 @@ describe('mcp command', () => {
       expect(getCommandPath).not.toHaveBeenCalledWith('claude');
     });
   });
+
+  describe('install', () => {
+    const NOTION_URL = 'https://mcp.notion.com/mcp';
+    const PROXY_PATH = '/usr/local/bin/codemie-mcp-proxy';
+
+    const installFixture = {
+      entries: [
+        {
+          entry: { name: 'Notion', transport: 'http', url: NOTION_URL, auth: 'oauth', oauth: true },
+          installable: true,
+        },
+        {
+          entry: { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
+          installable: false,
+        },
+      ],
+      notices: [],
+    };
+
+    async function mockInstallCatalog(catalog: unknown = installFixture) {
+      const catalogModule = await import('../catalog.js');
+      vi.mocked(catalogModule.resolveCatalog).mockResolvedValue(catalog as never);
+    }
+
+    async function mockCommandPaths(paths: Record<string, string | null>) {
+      const { getCommandPath } = await import('../../../../utils/processes.js');
+      vi.mocked(getCommandPath).mockImplementation(async (command: string) => paths[command] ?? null);
+    }
+
+    /** Everything written to console.error, flattened and whitespace-normalized (the formatter wraps lines). */
+    function errorOutput(): string {
+      return consoleErrorSpy.mock.calls
+        .map((call) => call.join(' '))
+        .join(' ')
+        .replace(/\s+/g, ' ');
+    }
+
+    it('registers the catalog server under its canonical name through claude by default', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion'], { from: 'user' })
+      ).rejects.toThrow(/^process\.exit:/);
+
+      expect(exitSpy).toHaveBeenNthCalledWith(1, 0);
+      expect(exec).toHaveBeenCalledWith(
+        '/usr/local/bin/claude',
+        ['mcp', 'add', 'Notion', '--', 'codemie-mcp-proxy', NOTION_URL],
+        { interactive: true, shell: expectedShell }
+      );
+    });
+
+    it('registers through codex mcp add without a scope flag when --agent=codex', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCommandPaths({ codex: '/usr/local/bin/codex', 'codemie-mcp-proxy': PROXY_PATH });
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion', '--agent=codex'], { from: 'user' })
+      ).rejects.toThrow(/^process\.exit:/);
+
+      expect(exec).toHaveBeenCalledWith(
+        '/usr/local/bin/codex',
+        ['mcp', 'add', 'Notion', '--', 'codemie-mcp-proxy', NOTION_URL],
+        { interactive: true, shell: expectedShell }
+      );
+    });
+
+    it('registers through gemini mcp add when --agent=gemini', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCommandPaths({ gemini: '/usr/local/bin/gemini', 'codemie-mcp-proxy': PROXY_PATH });
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion', '--agent=gemini'], { from: 'user' })
+      ).rejects.toThrow(/^process\.exit:/);
+
+      expect(exec).toHaveBeenCalledWith(
+        '/usr/local/bin/gemini',
+        ['mcp', 'add', 'Notion', 'codemie-mcp-proxy', NOTION_URL],
+        { interactive: true, shell: expectedShell }
+      );
+    });
+
+    it('propagates the exit code returned by the agent CLI', async () => {
+      await mockClaudeResolved(4);
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion'], { from: 'user' })
+      ).rejects.toThrow(/^process\.exit:/);
+
+      expect(exitSpy).toHaveBeenNthCalledWith(1, 4);
+    });
+
+    it('rejects an unknown agent without executing anything', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion', '--agent=foo'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('Unknown agent');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it.each([['https://evil.example/mcp'], ['nosuch']])(
+      'refuses "%s" because it is not in the catalog, pointing to list --catalog and mcp add',
+      async (name) => {
+        const { exec } = await mockClaudeResolved(0);
+        await mockInstallCatalog();
+        const { createMcpCommand } = await import('../index.js');
+
+        await expect(
+          createMcpCommand().parseAsync(['install', name], { from: 'user' })
+        ).rejects.toThrow('process.exit:1');
+
+        expect(errorOutput()).toContain('list --catalog');
+        expect(errorOutput()).toContain('mcp add');
+        expect(exec).not.toHaveBeenCalled();
+      }
+    );
+
+    it('refuses a catalog entry that is not installable', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'localtool'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('cannot be installed');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('refuses a bundled name when the backend catalog is empty', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog({ entries: [], notices: [] });
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('rejects a server name that starts with a dash', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', '--', '-badname'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('rejects --scope for codex, which has no scope flag', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCommandPaths({ codex: '/usr/local/bin/codex', 'codemie-mcp-proxy': PROXY_PATH });
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion', '--agent=codex', '--scope', 'user'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('errors out naming the proxy when codemie-mcp-proxy is missing', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCommandPaths({ claude: '/usr/local/bin/claude' });
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('codemie-mcp-proxy');
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('errors out naming the agent and codemie install when its CLI is missing', async () => {
+      const { exec } = await mockClaudeResolved(0);
+      await mockCommandPaths({ 'codemie-mcp-proxy': PROXY_PATH });
+      await mockInstallCatalog();
+      const { createMcpCommand } = await import('../index.js');
+
+      await expect(
+        createMcpCommand().parseAsync(['install', 'notion', '--agent=codex'], { from: 'user' })
+      ).rejects.toThrow('process.exit:1');
+
+      expect(errorOutput()).toContain('codex');
+      expect(errorOutput()).toContain('codemie install codex');
+      expect(exec).not.toHaveBeenCalled();
+    });
+  });
 });

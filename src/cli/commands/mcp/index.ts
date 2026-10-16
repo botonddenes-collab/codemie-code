@@ -3,8 +3,10 @@ import os from 'os';
 import { exec } from '../../../utils/exec.js';
 import { getCommandPath } from '../../../utils/processes.js';
 import { resolveHomeDir } from '../../../utils/paths.js';
-import { resolveCatalog, type CatalogEntry, type ResolvedCatalog } from './catalog.js';
+import { findCatalogEntry, resolveCatalog, type CatalogEntry, type ResolvedCatalog } from './catalog.js';
+import { buildAddArgs, MCP_INSTALL_AGENTS, type McpInstallAgent } from './agent-registration.js';
 import type { CanonicalMcpEntry } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
+import { ConfigurationError, ToolExecutionError, createErrorContext, formatErrorForUser } from '../../../utils/errors.js';
 
 async function ensureProxyCommandExists(): Promise<void> {
   const proxyCommand = await getCommandPath('codemie-mcp-proxy');
@@ -38,10 +40,10 @@ async function resolveClaudeCommand(): Promise<{ command: string; shell: boolean
 }
 
 /**
- * Run `claude mcp ...` interactively and resolve with the exit code to propagate.
+ * Run an agent CLI `mcp` subcommand interactively and resolve with the exit code to propagate.
  * Never exits the process itself; the caller decides how to terminate.
  */
-async function execClaudeMcp(claudeCommand: string, useShell: boolean, args: string[]): Promise<number> {
+async function execMcpCommand(claudeCommand: string, useShell: boolean, args: string[]): Promise<number> {
   try {
     const result = await exec(claudeCommand, args, {
       interactive: true,
@@ -66,7 +68,123 @@ async function execClaudeMcp(claudeCommand: string, useShell: boolean, args: str
 }
 
 async function runClaudeMcpCommand(claudeCommand: string, useShell: boolean, args: string[]): Promise<never> {
-  process.exit(await execClaudeMcp(claudeCommand, useShell, args));
+  process.exit(await execMcpCommand(claudeCommand, useShell, args));
+}
+
+interface McpInstallOptions {
+  agent: string;
+  scope?: string;
+}
+
+interface InstallTarget {
+  name: string;
+  url: string;
+}
+
+function isMcpInstallAgent(value: string): value is McpInstallAgent {
+  return (MCP_INSTALL_AGENTS as readonly string[]).includes(value);
+}
+
+/** Usage checks that run before the catalog is read or any process is spawned. */
+function validateInstallRequest(name: string, options: McpInstallOptions): McpInstallAgent {
+  const agent = options.agent;
+  if (!isMcpInstallAgent(agent)) {
+    throw new ConfigurationError(
+      `Unknown agent "${agent}". Supported agents: ${MCP_INSTALL_AGENTS.join(', ')}`
+    );
+  }
+  if (name.startsWith('-')) {
+    throw new ConfigurationError(`Invalid server name: ${name}`);
+  }
+  if (options.scope && agent === 'codex') {
+    throw new ConfigurationError('codex mcp add does not support --scope');
+  }
+  return agent;
+}
+
+/** Find a catalog entry by name and refuse anything that is not an installable catalog server. */
+function selectInstallTarget(catalog: ResolvedCatalog, name: string): InstallTarget {
+  const item = findCatalogEntry(catalog, name);
+  if (!item) {
+    throw new ConfigurationError(
+      `"${name}" is not in the MCP catalog. Run "codemie mcp list --catalog" to see installable servers; arbitrary URLs need "codemie mcp add".`
+    );
+  }
+  const url = item.entry.url;
+  if (!item.installable || !url) {
+    throw new ConfigurationError(
+      `"${item.entry.name}" is listed in the MCP catalog but cannot be installed: only http and sse servers with a url are supported.`
+    );
+  }
+  return { name: item.entry.name, url };
+}
+
+async function ensureInstallProxy(): Promise<void> {
+  if (!(await getCommandPath('codemie-mcp-proxy'))) {
+    throw new ToolExecutionError(
+      'codemie-mcp-proxy',
+      'binary not found. Reinstall @codemieai/code to restore the MCP proxy binary.'
+    );
+  }
+}
+
+function missingAgentCli(agent: McpInstallAgent): ToolExecutionError {
+  return new ToolExecutionError(
+    `${agent} CLI`,
+    `not found on PATH. Install it with "codemie install ${agent}".`
+  );
+}
+
+async function resolveAgentCommand(agent: McpInstallAgent): Promise<{ command: string; shell: boolean }> {
+  if (agent === 'claude') {
+    try {
+      return await resolveClaudeCommand();
+    } catch {
+      throw missingAgentCli(agent);
+    }
+  }
+  const command = await getCommandPath(agent);
+  if (!command) {
+    throw missingAgentCli(agent);
+  }
+  return { command, shell: os.platform() === 'win32' };
+}
+
+/** Resolve the catalog entry and register it through the chosen agent CLI. Returns the exit code. */
+async function installCatalogServer(name: string, options: McpInstallOptions): Promise<number> {
+  const agent = validateInstallRequest(name, options);
+  const catalog = await resolveCatalog();
+  printNotices(catalog);
+  const target = selectInstallTarget(catalog, name);
+  await ensureInstallProxy();
+  const { command, shell } = await resolveAgentCommand(agent);
+  return execMcpCommand(
+    command,
+    shell,
+    buildAddArgs(agent, target.name, target.url, options.scope)
+  );
+}
+
+function createMcpInstallCommand(): Command {
+  const command = new Command('install');
+
+  command
+    .description('Register a catalog MCP server through an agent CLI (codemie-mcp-proxy)')
+    .argument('<name>', 'Catalog server name (see `codemie mcp list --catalog`)')
+    .option('--agent <agent>', `Agent to register with (${MCP_INSTALL_AGENTS.join(', ')})`, 'claude')
+    .option('--scope <scope>', 'Scope for the MCP server (claude and gemini only)')
+    .action(async (name: string, options: McpInstallOptions) => {
+      let exitCode: number;
+      try {
+        exitCode = await installCatalogServer(name, options);
+      } catch (error: unknown) {
+        console.error(formatErrorForUser(createErrorContext(error), { showSystem: false }));
+        exitCode = 1;
+      }
+      process.exit(exitCode);
+    });
+
+  return command;
 }
 
 function createMcpAddCommand(): Command {
@@ -172,10 +290,14 @@ function formatCatalogEntry(item: CatalogEntry): string[] {
   return lines;
 }
 
-function printCatalog(catalog: ResolvedCatalog): void {
+function printNotices(catalog: ResolvedCatalog): void {
   for (const notice of catalog.notices) {
     console.warn(notice);
   }
+}
+
+function printCatalog(catalog: ResolvedCatalog): void {
+  printNotices(catalog);
   if (catalog.entries.length === 0) {
     console.log('No MCP servers are available in the catalog.');
     return;
@@ -219,5 +341,6 @@ export function createMcpCommand(): Command {
   mcp.addCommand(createMcpAddCommand());
   mcp.addCommand(createMcpRemoveCommand());
   mcp.addCommand(createMcpListCommand());
+  mcp.addCommand(createMcpInstallCommand());
   return mcp;
 }
