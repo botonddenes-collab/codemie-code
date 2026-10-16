@@ -35,28 +35,36 @@ async function resolveClaudeCommand(): Promise<{ command: string; shell: boolean
   };
 }
 
-async function runClaudeMcpCommand(claudeCommand: string, useShell: boolean, args: string[]): Promise<never> {
+/**
+ * Run `claude mcp ...` interactively and resolve with the exit code to propagate.
+ * Never exits the process itself; the caller decides how to terminate.
+ */
+async function execClaudeMcp(claudeCommand: string, useShell: boolean, args: string[]): Promise<number> {
   try {
     const result = await exec(claudeCommand, args, {
       interactive: true,
       shell: useShell,
     });
-    process.exit(result.code);
+    return result.code;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('ENOENT')) {
       console.error('claude CLI not found. Install Claude Code: https://claude.ai/code');
-      process.exit(1);
+      return 1;
     }
 
     if (message.includes('terminated by signal')) {
-      process.exit(1);
+      return 1;
     }
 
     // exec rejects on non-zero exit in interactive mode — extract and propagate the code
     const match = /code (\d+)/.exec(message);
-    process.exit(match ? parseInt(match[1], 10) : 1);
+    return match ? parseInt(match[1], 10) : 1;
   }
+}
+
+async function runClaudeMcpCommand(claudeCommand: string, useShell: boolean, args: string[]): Promise<never> {
+  process.exit(await execClaudeMcp(claudeCommand, useShell, args));
 }
 
 function createMcpAddCommand(): Command {
