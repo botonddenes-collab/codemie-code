@@ -949,6 +949,8 @@ Manage MCP servers registered with Claude Code. Both subcommands are thin wrappe
 codemie mcp add <name> <url> [--scope <scope>]     # Register an MCP server via codemie-mcp-proxy
 codemie mcp remove <name> [--scope <scope>]        # Remove a registered MCP server
 codemie mcp list                                   # List registered MCP servers
+codemie mcp list --catalog                         # List the managed MCP catalog (installable servers)
+codemie mcp install <name> [--agent <agent>] [--scope <scope>]   # Install a catalog server via codemie-mcp-proxy
 ```
 
 **`codemie mcp add`**
@@ -957,6 +959,17 @@ codemie mcp list                                   # List registered MCP servers
 - `--scope <scope>` — Scope for the MCP server (e.g. `project`, `user`)
 
 Registers the server by running `claude mcp add <name> -- codemie-mcp-proxy <url>`, so the server is launched through the [MCP proxy](#mcp-proxy-command) for OAuth support.
+
+**`codemie mcp list --catalog`**
+
+Shows the managed MCP catalog: the organization's servers merged over the bundled defaults (the organization entry wins a name or URL collision). Each entry shows its transport, auth, URL and whether `mcp install` can register it. Entries without an http/sse URL (for example stdio servers) are listed but not installable. Without a profile or SSO session, only the bundled defaults are shown, with a notice.
+
+**`codemie mcp install`**
+- `<name>` — Catalog server name, matched case-insensitively (see `mcp list --catalog`)
+- `--agent <agent>` — Agent to register with: `claude` (default), `codex` or `gemini`
+- `--scope <scope>` — Scope for the server; supported for `claude` and `gemini` only (codex has no scope flag)
+
+Only catalog entries can be installed. The registered URL always comes from the catalog, never from the command line, so URLs and unknown names are refused. Use `codemie mcp add` for an arbitrary URL. The command runs the agent's own CLI (`claude mcp add`, `codex mcp add` or `gemini mcp add`) with `codemie-mcp-proxy` as the stdio server, and fails with a message if that CLI or the proxy binary is not installed.
 
 **`codemie mcp remove`**
 - `<name>` — Name of the MCP server to remove
