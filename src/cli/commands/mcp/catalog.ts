@@ -16,15 +16,9 @@ import { sanitizeLogArgs } from '@/utils/security.js';
 /** Client id the managed MCP catalog is requested for (Desktop's id, reused by the CLI). */
 export const MCP_CATALOG_CLIENT_ID = 'claude-desktop';
 
-/** One catalog entry and whether `mcp install` may register it. */
-export interface CatalogEntry {
-  entry: CanonicalMcpEntry;
-  installable: boolean;
-}
-
 /** The resolved catalog plus human-readable notices about how it was built. */
 export interface ResolvedCatalog {
-  entries: CatalogEntry[];
+  entries: CanonicalMcpEntry[];
   notices: string[];
 }
 
@@ -34,15 +28,6 @@ const NOTICE_FETCH_UNAVAILABLE =
   'Organization MCP catalog is unavailable (no SSO session); showing the bundled MCP catalog only.';
 const NOTICE_CONFIG_UNREADABLE =
   'CodeMie configuration could not be read; showing the bundled MCP catalog only.';
-
-/** Only http/sse entries that carry a url can be registered through the proxy. */
-function isInstallable(entry: CanonicalMcpEntry): boolean {
-  return (
-    (entry.transport === 'http' || entry.transport === 'sse') &&
-    typeof entry.url === 'string' &&
-    entry.url.length > 0
-  );
-}
 
 /** Shape a backend entry takes when it passes through the shared merge. */
 function canonicalToManaged(entry: CanonicalMcpEntry): ManagedMcpServerEntry {
@@ -58,8 +43,7 @@ function canonicalToManaged(entry: CanonicalMcpEntry): ManagedMcpServerEntry {
  * Merge the organization catalog over the bundled defaults using the same rules
  * Claude Desktop uses: the backend wins a name or endpoint collision. Every backend
  * entry takes part in the collision test whatever its transport, so a stdio entry
- * cannot sit beside the bundled default it shadows. Non-http/sse backend entries
- * are carried through as listed-but-not-installable.
+ * cannot sit beside the bundled default it shadows.
  */
 function mergeWithBundled(orgEntries: CanonicalMcpEntry[]): CanonicalMcpEntry[] {
   const orgManaged = orgEntries.map(canonicalToManaged);
@@ -69,13 +53,9 @@ function mergeWithBundled(orgEntries: CanonicalMcpEntry[]): CanonicalMcpEntry[] 
   return [...bundledCanonicalDefaults(keptDefaults), ...orgEntries];
 }
 
-function toCatalogEntries(entries: CanonicalMcpEntry[]): CatalogEntry[] {
-  return entries.map((entry) => ({ entry, installable: isInstallable(entry) }));
-}
-
 function bundledOnly(notice: string): ResolvedCatalog {
   return {
-    entries: toCatalogEntries(bundledCanonicalDefaults()),
+    entries: bundledCanonicalDefaults(),
     notices: [notice],
   };
 }
@@ -85,7 +65,7 @@ function bundledOnly(notice: string): ResolvedCatalog {
  *
  * - No readable profile or no `codeMieUrl`: bundled defaults plus a notice, no fetch.
  * - Backend returns `null` (no SSO session or fetch failure): bundled defaults plus a notice.
- * - Backend returns `[]`: an empty catalog, so nothing is installable.
+ * - Backend returns `[]`: an empty catalog.
  * - Backend returns entries: merged over the bundled defaults, backend winning collisions.
  */
 export async function resolveCatalog(): Promise<ResolvedCatalog> {
@@ -109,18 +89,18 @@ export async function resolveCatalog(): Promise<ResolvedCatalog> {
   if (orgEntries === null) {
     const fallback = bundledOnFailedFetch(NOTICE_FETCH_UNAVAILABLE);
     return {
-      entries: toCatalogEntries(bundledCanonicalDefaults(fallback.defaults)),
+      entries: bundledCanonicalDefaults(fallback.defaults),
       notices: fallback.notice ? [fallback.notice] : [],
     };
   }
   if (orgEntries.length === 0) {
     return { entries: [], notices: [] };
   }
-  return { entries: toCatalogEntries(mergeWithBundled(orgEntries)), notices: [] };
+  return { entries: mergeWithBundled(orgEntries), notices: [] };
 }
 
 /** Case-insensitive exact lookup of a catalog entry by its canonical name. */
-export function findCatalogEntry(catalog: ResolvedCatalog, name: string): CatalogEntry | undefined {
+export function findCatalogEntry(catalog: ResolvedCatalog, name: string): CanonicalMcpEntry | undefined {
   const wanted = name.toLowerCase();
-  return catalog.entries.find((candidate) => candidate.entry.name.toLowerCase() === wanted);
+  return catalog.entries.find((candidate) => candidate.name.toLowerCase() === wanted);
 }

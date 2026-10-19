@@ -44,7 +44,7 @@ describe('catalog', () => {
 
       const catalog = await resolveCatalog();
 
-      expect(catalog.entries.map((c) => c.entry.name)).toContain('Notion');
+      expect(catalog.entries.map((c) => c.name)).toContain('Notion');
       expect(catalog.notices.length).toBeGreaterThan(0);
     });
 
@@ -74,10 +74,10 @@ describe('catalog', () => {
       const { resolveCatalog } = await import('@/cli/commands/mcp/catalog.js');
 
       const catalog = await resolveCatalog();
-      const notion = catalog.entries.filter((c) => c.entry.name === 'Notion');
+      const notion = catalog.entries.filter((c) => c.name === 'Notion');
 
       expect(notion).toHaveLength(1);
-      expect(notion[0].entry.url).toBe('https://internal.example.com/notion');
+      expect(notion[0].url).toBe('https://internal.example.com/notion');
     });
 
     it('keeps bundled defaults that the backend does not collide with', async () => {
@@ -87,47 +87,22 @@ describe('catalog', () => {
       const { resolveCatalog } = await import('@/cli/commands/mcp/catalog.js');
 
       const catalog = await resolveCatalog();
-      const names = catalog.entries.map((c) => c.entry.name);
+      const names = catalog.entries.map((c) => c.name);
 
       expect(names).toEqual(expect.arrayContaining(['Acme', 'Linear']));
     });
 
-    it('marks a stdio backend entry as not installable', async () => {
-      fetchManagedMcpServers.mockResolvedValue([
-        { name: 'LocalTool', transport: 'stdio', oauth: false },
-      ]);
-      const { resolveCatalog } = await import('@/cli/commands/mcp/catalog.js');
-
-      const catalog = await resolveCatalog();
-      const local = catalog.entries.find((c) => c.entry.name === 'LocalTool');
-
-      expect(local?.installable).toBe(false);
-    });
-
-    it('lets a non-installable backend entry displace a bundled default with the same name', async () => {
+    it('lets a stdio backend entry displace a bundled default with the same name', async () => {
       fetchManagedMcpServers.mockResolvedValue([
         { name: 'Notion', transport: 'stdio', oauth: false },
       ]);
       const { resolveCatalog, findCatalogEntry } = await import('@/cli/commands/mcp/catalog.js');
 
       const catalog = await resolveCatalog();
-      const notion = catalog.entries.filter((c) => c.entry.name === 'Notion');
+      const notion = catalog.entries.filter((c) => c.name === 'Notion');
 
       expect(notion).toHaveLength(1);
-      expect(notion[0].installable).toBe(false);
-      expect(findCatalogEntry(catalog, 'Notion')?.installable).toBe(false);
-    });
-
-    it('marks an sse backend entry with a url as installable', async () => {
-      fetchManagedMcpServers.mockResolvedValue([
-        { name: 'Streamer', transport: 'sse', url: 'https://stream.example.com/sse', oauth: false },
-      ]);
-      const { resolveCatalog } = await import('@/cli/commands/mcp/catalog.js');
-
-      const catalog = await resolveCatalog();
-      const streamer = catalog.entries.find((c) => c.entry.name === 'Streamer');
-
-      expect(streamer?.installable).toBe(true);
+      expect(findCatalogEntry(catalog, 'Notion')?.transport).toBe('stdio');
     });
 
     it('returns bundled defaults with a notice and skips fetch when no profile URL is configured', async () => {
@@ -137,7 +112,7 @@ describe('catalog', () => {
       const catalog = await resolveCatalog();
 
       expect(fetchManagedMcpServers).not.toHaveBeenCalled();
-      expect(catalog.entries.map((c) => c.entry.name)).toContain('Notion');
+      expect(catalog.entries.map((c) => c.name)).toContain('Notion');
       expect(catalog.notices.length).toBeGreaterThan(0);
     });
 
@@ -148,7 +123,7 @@ describe('catalog', () => {
       const catalog = await resolveCatalog();
 
       expect(fetchManagedMcpServers).not.toHaveBeenCalled();
-      expect(catalog.entries.map((c) => c.entry.name)).toContain('Notion');
+      expect(catalog.entries.map((c) => c.name)).toContain('Notion');
       expect(catalog.notices.length).toBeGreaterThan(0);
     });
   });
@@ -161,7 +136,7 @@ describe('catalog', () => {
 
       const found = findCatalogEntry(catalog, 'NOTION');
 
-      expect(found?.entry.name).toBe('Notion');
+      expect(found?.name).toBe('Notion');
     });
 
     it('returns undefined for a name that is not in the catalog', async () => {

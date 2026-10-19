@@ -21,8 +21,8 @@ vi.mock('../../../../utils/paths.js', () => ({
 vi.mock('../catalog.js', () => ({
   resolveCatalog: vi.fn(),
   findCatalogEntry: vi.fn(
-    (catalog: { entries: Array<{ entry: { name: string } }> }, name: string) =>
-      catalog.entries.find((candidate) => candidate.entry.name.toLowerCase() === name.toLowerCase()),
+    (catalog: { entries: Array<{ name: string }> }, name: string) =>
+      catalog.entries.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase()),
   ),
 }));
 
@@ -304,20 +304,14 @@ describe('mcp command', () => {
     const fixtureCatalog = {
       entries: [
         {
-          entry: {
-            name: 'Notion',
-            transport: 'http',
-            url: 'https://mcp.notion.com/mcp',
-            auth: 'oauth',
-            oauth: true,
-            description: 'Notion workspace',
-          },
-          installable: true,
+          name: 'Notion',
+          transport: 'http',
+          url: 'https://mcp.notion.com/mcp',
+          auth: 'oauth',
+          oauth: true,
+          description: 'Notion workspace',
         },
-        {
-          entry: { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
-          installable: false,
-        },
+        { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
       ],
       notices: ['Organization MCP catalog is unavailable (no SSO session); showing the bundled MCP catalog only.'],
     };
@@ -342,7 +336,7 @@ describe('mcp command', () => {
       return consoleLogSpy.mock.calls.map((call) => call.join(' ')).join('\n');
     }
 
-    it('prints each catalog entry with its transport, auth, url and description', async () => {
+    it('prints each catalog entry with its url and description', async () => {
       const { exec } = await mockClaudeResolved(0);
       await mockCatalog(fixtureCatalog);
       const { createMcpCommand } = await import('../index.js');
@@ -351,24 +345,9 @@ describe('mcp command', () => {
 
       const output = printedLines();
       expect(output).toContain('Notion');
-      expect(output).toContain('http');
-      expect(output).toContain('oauth');
       expect(output).toContain('https://mcp.notion.com/mcp');
       expect(output).toContain('Notion workspace');
       expect(exec).not.toHaveBeenCalled();
-    });
-
-    it('marks a stdio entry as not installable', async () => {
-      await mockClaudeResolved(0);
-      await mockCatalog(fixtureCatalog);
-      const { createMcpCommand } = await import('../index.js');
-
-      await createMcpCommand().parseAsync(['list', '--catalog'], { from: 'user' });
-
-      const localToolLine = consoleLogSpy.mock.calls
-        .map((call) => call.join(' '))
-        .find((line) => line.includes('LocalTool'));
-      expect(localToolLine).toContain('not installable');
     });
 
     it('prints the catalog notices as warnings', async () => {
@@ -408,14 +387,8 @@ describe('mcp command', () => {
 
     const installFixture = {
       entries: [
-        {
-          entry: { name: 'Notion', transport: 'http', url: NOTION_URL, auth: 'oauth', oauth: true },
-          installable: true,
-        },
-        {
-          entry: { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
-          installable: false,
-        },
+        { name: 'Notion', transport: 'http', url: NOTION_URL, auth: 'oauth', oauth: true },
+        { name: 'LocalTool', transport: 'stdio', auth: 'none', oauth: false },
       ],
       notices: [],
     };
@@ -461,7 +434,7 @@ describe('mcp command', () => {
     ])('refuses the unsafe catalog name "%s" without executing anything', async (name, url) => {
       const { exec } = await mockClaudeResolved(0);
       await mockInstallCatalog({
-        entries: [{ entry: { name, transport: 'http', url, auth: 'none', oauth: false }, installable: true }],
+        entries: [{ name, transport: 'http', url, auth: 'none', oauth: false }],
         notices: [],
       });
       const { createMcpCommand } = await import('../index.js');
@@ -480,7 +453,7 @@ describe('mcp command', () => {
     ])('refuses the unsafe catalog url "%s" without executing anything', async (url) => {
       const { exec } = await mockClaudeResolved(0);
       await mockInstallCatalog({
-        entries: [{ entry: { name: 'Acme', transport: 'http', url, auth: 'none', oauth: false }, installable: true }],
+        entries: [{ name: 'Acme', transport: 'http', url, auth: 'none', oauth: false }],
         notices: [],
       });
       const { createMcpCommand } = await import('../index.js');

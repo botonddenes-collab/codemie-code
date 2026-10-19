@@ -6,7 +6,6 @@ import { getCommandPath } from '../../../utils/processes.js';
 import { resolveHomeDir } from '../../../utils/paths.js';
 import { findCatalogEntry, resolveCatalog, type ResolvedCatalog } from './catalog.js';
 import { buildAddArgs, MCP_INSTALL_AGENTS, type McpInstallAgent } from './agent-registration.js';
-import type { CanonicalMcpEntry } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
 import { ConfigurationError, ToolExecutionError, createErrorContext, formatErrorForUser } from '../../../utils/errors.js';
 
 async function ensureProxyCommandExists(): Promise<void> {
@@ -111,13 +110,13 @@ function selectInstallTarget(catalog: ResolvedCatalog, name: string): InstallTar
       `"${name}" is not in the MCP catalog. Run "codemie mcp list --catalog" to see installable servers; arbitrary URLs need "codemie mcp add".`
     );
   }
-  const url = item.entry.url;
-  if (!item.installable || !url) {
+  const url = item.url;
+  if ((item.transport !== 'http' && item.transport !== 'sse') || !url) {
     throw new ConfigurationError(
-      `"${item.entry.name}" is listed in the MCP catalog but cannot be installed: only http and sse servers with a url are supported.`
+      `"${item.name}" is listed in the MCP catalog but cannot be installed: only http and sse servers with a url are supported.`
     );
   }
-  return { name: item.entry.name, url };
+  return { name: item.name, url };
 }
 
 /**
@@ -308,15 +307,8 @@ function createMcpRemoveCommand(): Command {
   return command;
 }
 
-function describeAuth(entry: CanonicalMcpEntry): string {
-  return entry.oauth || entry.auth === 'oauth' ? 'oauth' : 'none';
-}
-
 const NAME_WIDTH = 30;
-const TRANSPORT_WIDTH = 11;
-const AUTH_WIDTH = 8;
-const STATUS_WIDTH = 17;
-const URL_WIDTH = 42;
+const URL_WIDTH = 65;
 const DESC_WIDTH = 50;
 
 function padCell(value: string, width: number): string {
@@ -337,27 +329,18 @@ function printCatalog(catalog: ResolvedCatalog): void {
     return;
   }
 
-  const totalWidth = NAME_WIDTH + TRANSPORT_WIDTH + AUTH_WIDTH + STATUS_WIDTH + URL_WIDTH + DESC_WIDTH;
+  const totalWidth = NAME_WIDTH + URL_WIDTH + DESC_WIDTH;
   console.log(chalk.bold('\nMCP Catalog:\n'));
   console.log(
     chalk.bold(padCell('NAME', NAME_WIDTH)) +
-    chalk.bold(padCell('TRANSPORT', TRANSPORT_WIDTH)) +
-    chalk.bold(padCell('AUTH', AUTH_WIDTH)) +
-    chalk.bold(padCell('STATUS', STATUS_WIDTH)) +
     chalk.bold(padCell('URL', URL_WIDTH)) +
     chalk.bold('DESCRIPTION')
   );
   console.log(chalk.dim('─'.repeat(totalWidth)));
 
-  for (const { entry, installable } of catalog.entries) {
-    const status = installable
-      ? chalk.green(padCell('installable', STATUS_WIDTH))
-      : chalk.white(padCell('not installable', STATUS_WIDTH));
+  for (const entry of catalog.entries) {
     console.log(
       chalk.cyan(padCell(entry.name, NAME_WIDTH)) +
-      chalk.white(padCell(entry.transport, TRANSPORT_WIDTH)) +
-      chalk.white(padCell(describeAuth(entry), AUTH_WIDTH)) +
-      status +
       chalk.white(padCell(entry.url ?? '', URL_WIDTH)) +
       chalk.dim(padCell(entry.description ?? '', DESC_WIDTH))
     );
