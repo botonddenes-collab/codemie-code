@@ -1,9 +1,10 @@
 import { Command } from 'commander';
+import chalk from 'chalk';
 import os from 'os';
 import { exec } from '../../../utils/exec.js';
 import { getCommandPath } from '../../../utils/processes.js';
 import { resolveHomeDir } from '../../../utils/paths.js';
-import { findCatalogEntry, resolveCatalog, type CatalogEntry, type ResolvedCatalog } from './catalog.js';
+import { findCatalogEntry, resolveCatalog, type ResolvedCatalog } from './catalog.js';
 import { buildAddArgs, MCP_INSTALL_AGENTS, type McpInstallAgent } from './agent-registration.js';
 import type { CanonicalMcpEntry } from '@/cli/commands/proxy/connectors/managed-mcp-remote.js';
 import { ConfigurationError, ToolExecutionError, createErrorContext, formatErrorForUser } from '../../../utils/errors.js';
@@ -311,13 +312,16 @@ function describeAuth(entry: CanonicalMcpEntry): string {
   return entry.oauth || entry.auth === 'oauth' ? 'oauth' : 'none';
 }
 
-function formatCatalogEntry(item: CatalogEntry): string[] {
-  const { entry, installable } = item;
-  const status = installable ? 'installable' : 'not installable';
-  const lines = [`${entry.name}  [${entry.transport}, auth: ${describeAuth(entry)}]  ${status}`];
-  if (entry.url) lines.push(`  url: ${entry.url}`);
-  if (entry.description) lines.push(`  ${entry.description}`);
-  return lines;
+const NAME_WIDTH = 30;
+const TRANSPORT_WIDTH = 11;
+const AUTH_WIDTH = 8;
+const STATUS_WIDTH = 17;
+const URL_WIDTH = 42;
+const DESC_WIDTH = 50;
+
+function padCell(value: string, width: number): string {
+  const fitted = value.length > width - 1 ? value.slice(0, width - 4) + '...' : value;
+  return fitted.padEnd(width);
 }
 
 function printNotices(catalog: ResolvedCatalog): void {
@@ -329,14 +333,37 @@ function printNotices(catalog: ResolvedCatalog): void {
 function printCatalog(catalog: ResolvedCatalog): void {
   printNotices(catalog);
   if (catalog.entries.length === 0) {
-    console.log('No MCP servers are available in the catalog.');
+    console.log(chalk.yellow('\nNo MCP servers are available in the catalog.\n'));
     return;
   }
-  for (const item of catalog.entries) {
-    for (const line of formatCatalogEntry(item)) {
-      console.log(line);
-    }
+
+  const totalWidth = NAME_WIDTH + TRANSPORT_WIDTH + AUTH_WIDTH + STATUS_WIDTH + URL_WIDTH + DESC_WIDTH;
+  console.log(chalk.bold('\nMCP Catalog:\n'));
+  console.log(
+    chalk.bold(padCell('NAME', NAME_WIDTH)) +
+    chalk.bold(padCell('TRANSPORT', TRANSPORT_WIDTH)) +
+    chalk.bold(padCell('AUTH', AUTH_WIDTH)) +
+    chalk.bold(padCell('STATUS', STATUS_WIDTH)) +
+    chalk.bold(padCell('URL', URL_WIDTH)) +
+    chalk.bold('DESCRIPTION')
+  );
+  console.log(chalk.dim('─'.repeat(totalWidth)));
+
+  for (const { entry, installable } of catalog.entries) {
+    const status = installable
+      ? chalk.green(padCell('installable', STATUS_WIDTH))
+      : chalk.white(padCell('not installable', STATUS_WIDTH));
+    console.log(
+      chalk.cyan(padCell(entry.name, NAME_WIDTH)) +
+      chalk.white(padCell(entry.transport, TRANSPORT_WIDTH)) +
+      chalk.white(padCell(describeAuth(entry), AUTH_WIDTH)) +
+      status +
+      chalk.white(padCell(entry.url ?? '', URL_WIDTH)) +
+      chalk.dim(padCell(entry.description ?? '', DESC_WIDTH))
+    );
   }
+
+  console.log(chalk.dim(`\n${catalog.entries.length} server(s) in catalog.\n`));
 }
 
 function createMcpListCommand(): Command {
